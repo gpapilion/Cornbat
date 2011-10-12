@@ -1,0 +1,1 @@
+{"RunAs":"root","BlockOthers":0,"Command":"/bin/ls","NumberRuns":null,"JobSchedule":["*/1","*","*","*","*"],"LogFile":null,"JobName":"test job"}

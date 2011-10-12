@@ -1,0 +1,1 @@
+{"RunAs":"root","BlockOthers":0,"Command":"\/etc\/foo","NumberRuns":null,"JobSchedule":["0-11",1,0,0,0],"LogFile":null,"JobName":"test job"}

@@ -20,10 +20,15 @@ sub new {
    $self->{BlockOthers} = shift;
    $self->{Command} = shift; 
    $self->{LogFile} = shift;
-   $self->{NumberRuns} = shift; 
+   $self->{NumberRuns} = 0; 
    bless ($self, $class);
    return $self;
 
+}
+
+sub ran {
+   my $self = shift;
+   $self->{NumberRuns}++;
 }
 
 sub to_js {
@@ -40,6 +45,7 @@ sub from_js {
    my $json_rep = shift; 
    my $json = Mojo::JSON->new;
    my $self = $json->decode($json_rep);
+   $self->{NumberRuns}=0;
    bless ($self, $class);
    return $self;
 }
@@ -55,12 +61,12 @@ sub should_run {
    my $field;
    my $execute_command=0;
    
+   #my @test_fields =  @{$date_array};
    for(my $i = 0; $i <= $sched_length ; $i++ ) {
       DEBUG("print $#schedule");
       DEBUG("$i");
       my $field = shift @schedule;
 
-      my $test_field = shift @{$date_array};
       my @intervals;
       #split based on commas, always... if it doesn't split thats fine.
       DEBUG("Splinting into an array based on commas, $field"); 
@@ -72,6 +78,7 @@ sub should_run {
       for(my $j=0;$j<=$#intervals;$j++){
          my $interval = shift @intervals; 
 
+         DEBUG("$interval : @{$date_array}[$i]");
          if ($interval eq "\*") {
             DEBUG("Matching on *, $interval");
                $execute_command = 1; 
@@ -79,19 +86,20 @@ sub should_run {
             DEBUG("Matching on */n");
             my ($star, $modula) = split("/",$interval);  
 
-            if(($test_field % $modula) == 0) { 
+            if(($date_array->[$i] % $modula) == 0) { 
                $execute_command = 1; 
             }
 
          } elsif ($interval =~ /^[0-9]?-/) {
             DEBUG("Matching on n-m, $interval");
             my ($first, $second) = split("-", $interval);
-            if ($test_field >= $first && $test_field <= $second){
+            DEBUG("F $first : S $second");
+            if ($date_array->[$i] >= $first && $date_array->[$i] <= $second){
                $execute_command = 1; 
             }
          } elsif ($interval >= 0 && $interval <= 60) {
             DEBUG("Matching on interger, $interval");
-            if ( $interval == $test_field) {
+            if ( $interval == $date_array->[$i]) {
                $execute_command = 1; 
             }
          }

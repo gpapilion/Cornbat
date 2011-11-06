@@ -1,0 +1,1 @@
+{"RunAs":"root","BlockOthers":0,"Command":"/usr/bin/touch pfoodie","NumberRuns":null,"JobSchedule":["*/1","*","*","*","*"],"LogFile":null,"JobName":"test job 4"}

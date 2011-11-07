@@ -1,32 +1,62 @@
+use strict;
 use Cornbat::Job;
 use Cornbat::Access;
 use POSIX ":sys_wait_h"; 
+use POSIX qw(setsid);
+use Mojolicious::Lite;
+use Mojolicious::Renderer;
+use Mojo::JSON;
+use Cornbat::Job;
+use MIME::Base64;
+use Mojo::Server::Daemon;
+use Cornbat::Config;
+use Log::Log4perl qw(:easy);
 
 my %running_jobs;
 my %jobs_schedule; 
 my %jobs;
 my %pids;
-my $PASSFILE = 'tests/passfile';
-my $ACLFILE = 'tests/aclfile';
+my $web_pid;
 
-my $auth = Cornbat::Access->new($PASSFILE, $ACLFILE);
+my $config_file = "/etc/cornbat/cornbat.conf";
+# Setting to current commandline argument
+if ( $ARGV[0] ) {
+   $config_file = $ARGV[0];
+}
 
 sub REAPER {
    my $child;
    while (($child = waitpid(-1, WNOHANG)) > 0) {
+       my %Kid_Status;
        $Kid_Status{$child} = $?;
-       my $job_name = $pid{$child};
+       my $job_name = $pids{$child};
+       DEBUG("$job_name = $pids{$child}");
+
+       DEBUG("Removing: " . $running_jobs{$job_name}) ;
        delete($running_jobs{$job_name});
+       DEBUG("$job_name $child Status " . $Kid_Status{$child});
    }
    $SIG{CHLD} = \&REAPER;
 }
 
+# MAKE SURE WE KILL THE HTTP portion
+sub KILLER {
+    kill 15, $web_pid;
+    exit;
+}
+
 $SIG{CHLD} = \&REAPER;
+$SIG{TERM} = \&KILLER;
 
+my $config_obj = Cornbat::Config->new($config_file);
 
+Log::Log4perl->easy_init( { level => $DEBUG, file  => ">>cornbat.log" } );
+my $auth = Cornbat::Access->new($config_obj->{AuthFile}, $config_obj->{ACLFile});
+
+daemonize();
 read_schedule();
+$web_pid = fork();
 
-my $web_pid = fork();
 if ( $web_pid == 0 ) {
    web();
 }
@@ -46,7 +76,7 @@ while(1){
      if($jobs{$key}->should_run(\@current_time)){
         # check if I'm running 
         if ($running_jobs{$key} && ($jobs{$key}->{BlockOthers} eq 1) ) { 
-           print "${jobs{$key}->Name} is running, and blocks new jobs\n";
+          INFO("${jobs{$key}->Name} is running, and blocks new jobs");
         } else { 
            my $pid = fork();
            die "Forking Issue" unless defined $pid;
@@ -59,8 +89,8 @@ while(1){
                   ($),$() = ($gid, $gid);
                   ($<,$>) = ($uid, $uid);
               }
-              $exit_status = system($jobs{$key}->{Command});
-              exit $exit_status;
+
+              exec("$jobs{$key}->{Command} 2>&1 >>\"$jobs{$key}->{LogFile}\"");
               
            } else {
               $running_jobs{$key} = time();
@@ -108,9 +138,12 @@ sub job_schedule_from_json{
   my $json_array;
   $json_array = $json->decode($string);
   foreach my $key ( keys %{$json_array}){
-      my $job = bless($$json_array{$key}, Cornbat::Job);
+      my $job = bless($$json_array{$key}, "Cornbat::Job");
       $job->{NumberRuns}=0;
       #Cornbat::Job->from_js($json_array{$key});
+      if (!$job->{LogFile} || $job->LogFile eq "null"){
+         $job->{LogFile} = "$config_obj->{LogLocation}/$job->{JobName}.log"
+      }
       $jobs_schedule{$key} = $job->to_js();
       $jobs{$job->{JobName}} = $job;
    }
@@ -118,7 +151,7 @@ sub job_schedule_from_json{
 
 sub write_schedule{
   my $config = job_schedule_json();   
-  open(CONFIG, ">cornbat_schedule.conf"); 
+  open(CONFIG, ">", $config_obj->{ScheduleLocation}); 
   print CONFIG $config;
   close CONFIG;
   return 0;
@@ -126,10 +159,12 @@ sub write_schedule{
 
 sub read_schedule {
   local $/=undef;
-  if ( -e "cornbat_schedule.conf"){
-     open (CONFIG, "cornbat_schedule.conf") or die "Couldn't open file: $!";
-     my $string = <CONFIG>;
-     close FILE;
+  if ( -e  $config_obj->{ScheduleLocation}){
+     open (CONFIG, $config_obj->{ScheduleLocation}) or die "Couldn't open file: $!";
+     DEBUG(" $config_obj->{ScheduleLocation})");
+     my $string = do { local( $/ ) ; <CONFIG> };
+     close CONFIG;
+     DEBUG($string);
      job_schedule_from_json($string);
   }
 }
@@ -150,13 +185,7 @@ sub authorize{
 
 sub web {
 
-  use Mojolicious::Lite;
-  use Mojo::JSON;
-  use Cornbat::Job;
-  use MIME::Base64;
-  
-
-  
+  my $daemon = Mojo::Server::Daemon->new(app => app, listen => ["http://*:$config_obj->{Port}"], silent=>1);
   post 'job' => sub{
      my $self = shift;
      if (authorize($self)){
@@ -216,6 +245,17 @@ sub web {
         $self->render(text=>"No Access");
      }
   };
+  $daemon->run();
 
-  app->start;
-};
+}
+
+
+sub daemonize {
+   chdir '/'               or die "Can't chdir to /: $!";
+   open STDIN, '/dev/null' or die "Can't read /dev/null: $!";
+   open STDOUT, '>/dev/null' or die "Can't write to /dev/null: $!";
+   defined(my $pid = fork) or die "Can't fork: $!";
+   exit if $pid;
+   setsid()                  or die "Can't start a new session: $!";
+   open STDERR, '>&STDOUT' or die "Can't dup stdout: $!";
+}

@@ -8,7 +8,7 @@ use Time::localtime;
 use Log::Log4perl qw(:easy);
 use Mojo::JSON;
 
-Log::Log4perl->easy_init( $DEBUG );
+Log::Log4perl->easy_init( $ERROR );
 
 sub new {
    my $class = shift;

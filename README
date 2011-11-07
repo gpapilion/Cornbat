@@ -1,0 +1,6 @@
+
+Cornbat: 
+
+A cron like server with a HTTP API for submitting jobs.
+
+Working on the install, and documentation. Currently a proof of concept
